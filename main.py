@@ -514,10 +514,29 @@ async def run_agent(
             await ping_task
 
 
-async def connect_and_run(url: str, agent_id: str, *, ha_url: str | None, ha_token: str | None) -> None:
-    logger.info("Connecting agent %s to %s", agent_id, url)
+def _backend_connect_headers(beta_key: str) -> list[tuple[str, str]] | None:
+    if not beta_key:
+        return None
+    return [("X-Semantic-Home-Beta-Key", beta_key)]
+
+
+def _redact_backend_url_for_logs(url: str) -> str:
+    parsed = urlparse(url)
+    return parsed._replace(query="", fragment="").geturl()
+
+
+async def connect_and_run(
+    url: str,
+    agent_id: str,
+    *,
+    ha_url: str | None,
+    ha_token: str | None,
+    beta_key: str,
+) -> None:
+    logger.info("Connecting agent %s to %s", agent_id, _redact_backend_url_for_logs(url))
     async with websockets.connect(
         url,
+        additional_headers=_backend_connect_headers(beta_key),
         ping_interval=None,
         ping_timeout=None,
         open_timeout=None,
@@ -559,6 +578,7 @@ async def async_main() -> None:
     parser.add_argument("--description", default="")
     parser.add_argument("--ha-url", default=os.getenv("HA_URL", ""))
     parser.add_argument("--ha-token", default=os.getenv("HA_TOKEN", ""))
+    parser.add_argument("--beta-key", default=os.getenv("SEMANTIC_HOME_BETA_KEY", ""))
     args = parser.parse_args()
 
     query = urlencode(
@@ -575,12 +595,19 @@ async def async_main() -> None:
         raise SystemExit("Provide both --ha-url and --ha-token, or neither for stub mode.")
 
     normalized_ha_url = normalize_ha_websocket_url(ha_url) if ha_url else None
+    beta_key = args.beta_key.strip()
 
     attempt = 0
     while True:
         try:
             attempt = 0
-            await connect_and_run(url, args.id, ha_url=normalized_ha_url, ha_token=ha_token)
+            await connect_and_run(
+                url,
+                args.id,
+                ha_url=normalized_ha_url,
+                ha_token=ha_token,
+                beta_key=beta_key,
+            )
         except (ConnectionClosedOK, ConnectionClosedError, ConnectionClosed) as exc:
             code = getattr(exc, "code", None)
             reason = getattr(exc, "reason", None)
