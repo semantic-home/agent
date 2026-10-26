@@ -14,6 +14,21 @@ MARKER = "Managed by Semantic Home; id=01234567-0123-4123-8123-0123456789ab; ver
 
 
 class AgentAutomationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_inventory_reports_ha_home_location_and_watches_configuration_changes(self):
+        session = object.__new__(agent.HomeAssistantSession)
+        subscriptions = []
+        async def request(payload, **kwargs):
+            if payload["type"] == "get_config":
+                return {"time_zone": "Europe/Berlin", "latitude": 50.625, "longitude": 7.022,
+                        "elevation": 180, "location_name": "Meckenheim", "version": "2026.9.4"}
+            if payload["type"] == "subscribe_events": subscriptions.append(payload["event_type"])
+            return []
+        session.request = request
+        result = await session.inventory_metadata()
+        self.assertEqual(result["location"], {"name": "Meckenheim", "latitude": 50.625, "longitude": 7.022, "elevation": 180})
+        await session.watch_inventory()
+        self.assertIn("core_config_updated", subscriptions)
+
     def fake(self, *, existing=None, actual="on", registry_id="registry-1", zone="Europe/Berlin"):
         session = object.__new__(agent.HomeAssistantSession)
         session.writes = []

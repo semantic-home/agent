@@ -207,7 +207,12 @@ class HomeAssistantSession:
                 }.items() if v is not None}
         except RuntimeError:
             logger.warning("Device registry unavailable; publishing entity functions without room metadata")
-        return {"type": "metadata", "timezone": config.get("time_zone"), "ha_version": config.get("version"), "stub": False}
+        metadata = {"type": "metadata", "timezone": config.get("time_zone"), "ha_version": config.get("version"), "stub": False}
+        if config.get("latitude") is not None and config.get("longitude") is not None:
+            metadata["location"] = {"name": str(config.get("location_name") or "Home Assistant home")[:100],
+                                    "latitude": config["latitude"], "longitude": config["longitude"],
+                                    "elevation": config.get("elevation", 0)}
+        return metadata
 
     async def config_http(self, method, config_id, data=None):
         url = f"{self.http_url}/api/config/automation/config/{config_id}"
@@ -351,7 +356,7 @@ class HomeAssistantSession:
                     future.set_exception(error)
 
     async def watch_inventory(self):
-        for event in ("entity_registry_updated", "device_registry_updated", "area_registry_updated", "semantic_home_action"):
+        for event in ("entity_registry_updated", "device_registry_updated", "area_registry_updated", "core_config_updated", "semantic_home_action"):
             await self.request({"type": "subscribe_events", "event_type": event}, timeout_s=8)
 
     async def refresh_inventory(self):
@@ -385,7 +390,7 @@ class HomeAssistantSession:
             if self.on_activity:
                 await self.on_activity(event.get("data", {}))
             return
-        if event.get("event_type") in {"entity_registry_updated", "device_registry_updated", "area_registry_updated"}:
+        if event.get("event_type") in {"entity_registry_updated", "device_registry_updated", "area_registry_updated", "core_config_updated"}:
             if self._registry_refresh_task is None or self._registry_refresh_task.done():
                 self._registry_refresh_task = asyncio.create_task(self.refresh_inventory())
             return
